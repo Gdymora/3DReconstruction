@@ -1,0 +1,56 @@
+services:
+  # Бекенд API на Flask з алгоритмами 3D-реконструкції
+  api:
+    build: ./api
+    container_name: reconstruction-api
+    volumes:
+      - ./api:/app
+      - ./data:/data
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+      - PYTHONUNBUFFERED=1
+      - QT_QPA_PLATFORM=offscreen
+      - DISPLAY=:99
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    command: gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 1800 app:app # 30 хвилин
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Фронтенд на React
+  frontend:
+    build: ./frontend
+    container_name: reconstruction-frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Nginx для проксіювання та статичних файлів
+  # nginx:
+  #   build: ./nginx
+  #   container_name: reconstruction-nginx
+  #   ports:
+  #     - "80:80"
+  #   depends_on:
+  #     - api
+  #     - frontend
+  #   volumes:
+  #     - ./data/results:/usr/share/nginx/html/results
+  #   restart: unless-stopped
+
+volumes:
+  data:

@@ -1,0 +1,98 @@
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #f5f5f5;
+  }
+  
+  code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+      monospace;
+  }
+  
+  * {
+    box-sizing: border-box;
+  }
+  
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* Стилі для React Dropzone */
+  .dropzone {
+    border: 2px dashed #cccccc;
+    border-radius: 4px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background-color: #fafafa;
+  }
+  
+  .dropzone:hover {
+    border-color: #1976d2;
+    background-color: rgba(25, 118, 210, 0.05);
+  }
+  
+  .dropzone.active {
+    border-color: #1976d2;
+    background-color: rgba(25, 118, 210, 0.1);
+  }
+  
+  /* Стилі для Three.js canvas */
+  canvas {
+    outline: none;
+  }
+  
+  .canvas-container {
+    position: relative;
+    width: 100%;
+    height: 70vh;
+    background-color: #000;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  
+  /* Стилі для сторінки результатів */
+  .result-card {
+    transition: transform 0.2s ease;
+  }
+  
+  .result-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Додаткові анімації */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  
+  .fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+  
+  /* Адаптивні шрифти */
+  @media (max-width: 600px) {
+    h1 {
+      font-size: 1.8rem !important;
+    }
+    
+    h2 {
+      font-size: 1.5rem !important;
+    }
+    
+    h3, h4, h5, h6 {
+      font-size: 1.2rem !important;
+    }
+  }
