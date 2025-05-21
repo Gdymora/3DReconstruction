@@ -96,12 +96,12 @@ class ColmapPipeline(BasePipeline):
     
     def _run_colmap_sfm(self):
         """
-        Запускає COLMAP для Structure from Motion.
+        Запускає COLMAP для Structure from Motion з детальним логуванням.
         
         Returns:
             str: Шлях до директорії з sparse reconstruction
         """
-        self.logger.info("Запуск COLMAP SfM")
+        self.logger.info("Запуск COLMAP SfM пайплайну")
         
         # Параметри якості для COLMAP
         quality_params = {
@@ -140,9 +140,159 @@ class ColmapPipeline(BasePipeline):
         env['QT_QPA_PLATFORM'] = 'offscreen'
         env['DISPLAY'] = ':99'
         
-        # 1. Feature extraction
+        # Додаємо лічильник для моніторингу прогресу
+        progress_counter = {
+            'feature_extraction': {'total': 0, 'current': 0, 'features': 0},
+            'feature_matching': {'total': 0, 'current': 0, 'matches': 0},
+            'mapping': {'total': 0, 'current': 0, 'points': 0}
+        }
+        
+        # Функція для обробки вихідних даних COLMAP
+        def process_output(line, stage):
+            if stage == 'feature_extraction':
+                # Пошук рядків про кількість зображень або ключові точки
+                if 'processed' in line and 'images' in line:
+                    try:
+                        parts = line.split()
+                        current = int(parts[1])
+                        total = int(parts[3])
+                        progress_counter['feature_extraction']['current'] = current
+                        progress_counter['feature_extraction']['total'] = total
+                        percent = min(15, 5 + (current * 10) // total)
+                        self.progress.update_progress("sfm", percent, f"Обробка зображень: {current}/{total}")
+                        self.logger.info(f"Прогрес виділення ключових точок: {current}/{total} зображень")
+                    except Exception as e:
+                        self.logger.error(f"Помилка при аналізі прогресу: {str(e)}")
+                
+                if 'Features:' in line:
+                    try:
+                        features_count = int(line.split(':')[1].strip())
+                        progress_counter['feature_extraction']['features'] = features_count
+                        self.logger.info(f"Виявлено ключових точок: {features_count}")
+                    except Exception:
+                        pass
+            
+            elif stage == 'feature_matching':
+                # Пошук рядків про прогрес зіставлення
+                if 'Matching block' in line:
+                    try:
+                        # Формат: Matching block [1/10, 2/10] in 0.123s
+                        block_info = line.split('[')[1].split(']')[0]
+                        current_block, total_blocks = block_info.split(',')[0].strip().split('/')
+                        current_block = int(current_block)
+                        total_blocks = int(total_blocks)
+                        
+                        progress_counter['feature_matching']['current'] = current_block
+                        progress_counter['feature_matching']['total'] = total_blocks
+                        
+                        # Розрахунок відсотка прогресу для етапу зіставлення (від 15% до 30%)
+                        percent = min(30, 15 + (current_block * 15) // total_blocks)
+                        self.progress.update_progress("sfm", percent, 
+                                                    f"Зіставлення ключових точок: блок {current_block}/{total_blocks}")
+                        self.logger.info(f"Прогрес зіставлення: блок {current_block}/{total_blocks}")
+                    except Exception as e:
+                        self.logger.error(f"Помилка при аналізі прогресу зіставлення: {str(e)}")
+                
+                if 'Matches:' in line:
+                    try:
+                        matches_count = int(line.split(':')[1].strip())
+                        progress_counter['feature_matching']['matches'] = matches_count
+                        self.logger.info(f"Знайдено зіставлень: {matches_count}")
+                    except Exception:
+                        pass
+            
+            elif stage == 'mapping':
+                # Пошук рядків про реєстрацію зображень
+                if 'Registering image' in line:
+                    try:
+                        # Parsing "Registering image #X"
+                        current_img = int(line.split('#')[1].split()[0])
+                        if progress_counter['mapping']['total'] == 0:
+                            # Це перше зображення, оцінимо загальну кількість з feature_extraction
+                            progress_counter['mapping']['total'] = progress_counter['feature_extraction']['total']
+                        
+                        progress_counter['mapping']['current'] = current_img
+                        
+                        # Розрахунок відсотка для етапу mapping (від 30% до 50%)
+                        percent = min(50, 30 + (current_img * 20) // progress_counter['mapping']['total'])
+                        self.progress.update_progress("sfm", percent, 
+                                                    f"Реконструкція камер: {current_img}/{progress_counter['mapping']['total']}")
+                        self.logger.info(f"Прогрес реконструкції: зображення {current_img}/{progress_counter['mapping']['total']}")
+                    except Exception as e:
+                        self.logger.error(f"Помилка при аналізі прогресу реконструкції: {str(e)}")
+                
+                if 'points_count' in line:
+                    try:
+                        points_count = int(line.split(':')[1].strip())
+                        progress_counter['mapping']['points'] = points_count
+                        self.logger.info(f"Реконструйовано 3D точок: {points_count}")
+                    except Exception:
+                        pass
+        
+        # Функція для запуску команди з обробкою виводу в реальному часі
+        def custom_run_command(command, stage, env=None, timeout=3600):  # 1 година максимум
+            """Запускає команду з обробкою виводу в реальному часі"""
+            self.logger.info(f"Виконання команди для етапу {stage}: {command}")
+            
+            try:
+                process = subprocess.Popen(
+                    command, 
+                    shell=True, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
+                    bufsize=1,  # Буферизація порядкова
+                    env=env
+                )
+                
+                # Читаємо вивід у режимі реального часу
+                for line in process.stdout:
+                    line = line.strip()
+                    if line:
+                        self.logger.info(f"STDOUT: {line}")
+                        process_output(line, stage)
+                
+                # Читаємо помилки у режимі реального часу
+                for line in process.stderr:
+                    line = line.strip()
+                    if line:
+                        self.logger.warning(f"STDERR: {line}")
+                
+                # Чекаємо завершення процесу з таймаутом
+                try:
+                    return_code = process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    self.logger.error(f"Команда перервана через перевищення таймауту ({timeout}с): {command}")
+                    raise RuntimeError(f"Команда перервана через таймаут: {command}")
+                
+                if return_code != 0:
+                    self.logger.error(f"Команда завершилася з кодом {return_code}")
+                    raise RuntimeError(f"Помилка виконання команди: {command}")
+                    
+                self.logger.info(f"Команда для етапу {stage} виконана успішно")
+                # Виводимо підсумкову статистику етапу
+                if stage == 'feature_extraction':
+                    self.logger.info(f"Підсумок етапу Feature Extraction:")
+                    self.logger.info(f"  Оброблено зображень: {progress_counter['feature_extraction']['current']}/{progress_counter['feature_extraction']['total']}")
+                    self.logger.info(f"  Знайдено ключових точок: {progress_counter['feature_extraction']['features']}")
+                elif stage == 'feature_matching':
+                    self.logger.info(f"Підсумок етапу Feature Matching:")
+                    self.logger.info(f"  Оброблено блоків: {progress_counter['feature_matching']['current']}/{progress_counter['feature_matching']['total']}")
+                    self.logger.info(f"  Знайдено зіставлень: {progress_counter['feature_matching']['matches']}")
+                elif stage == 'mapping':
+                    self.logger.info(f"Підсумок етапу Mapping:")
+                    self.logger.info(f"  Реконструйовано зображень: {progress_counter['mapping']['current']}/{progress_counter['mapping']['total']}")
+                    self.logger.info(f"  Створено 3D точок: {progress_counter['mapping']['points']}")
+                
+                return ""
+            except Exception as e:
+                self.logger.error(f"Помилка при виконанні команди: {str(e)}")
+                raise
+        
+        # 1. Feature extraction з детальним логуванням
         self.logger.info("Запуск feature extraction")
-        self.progress.update_progress("sfm", 15, "Виявлення ключових точок на зображеннях")
+        self.progress.update_progress("sfm", 5, "Виявлення ключових точок на зображеннях")
         
         feature_extractor_cmd = (
             f"xvfb-run.sh colmap feature_extractor "
@@ -153,12 +303,17 @@ class ColmapPipeline(BasePipeline):
             f"--ImageReader.camera_model PINHOLE"
         )
         
-        run_command(feature_extractor_cmd, env=env, logger=self.logger)
-        self.logger.info("Feature extraction завершено")
+        try:
+            custom_run_command(feature_extractor_cmd, "feature_extraction", env=env)
+            self.logger.info("Feature extraction завершено")
+        except Exception as e:
+            self.logger.error(f"Помилка при feature extraction: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            raise
         
-        # 2. Feature matching
+        # 2. Feature matching з детальним логуванням
         self.logger.info("Запуск feature matching")
-        self.progress.update_progress("sfm", 20, "Зіставлення ключових точок")
+        self.progress.update_progress("sfm", 15, "Зіставлення ключових точок")
         
         matcher_cmd = (
             f"xvfb-run.sh colmap exhaustive_matcher "
@@ -166,12 +321,17 @@ class ColmapPipeline(BasePipeline):
             f"{params['matcher']}"
         )
         
-        run_command(matcher_cmd, env=env, logger=self.logger)
-        self.logger.info("Feature matching завершено")
+        try:
+            custom_run_command(matcher_cmd, "feature_matching", env=env)
+            self.logger.info("Feature matching завершено")
+        except Exception as e:
+            self.logger.error(f"Помилка при feature matching: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            raise
         
-        # 3. Structure from Motion
+        # 3. Structure from Motion з детальним логуванням
         self.logger.info("Запуск mapper (sparse reconstruction)")
-        self.progress.update_progress("sfm", 25, "Реконструкція камер і структури сцени")
+        self.progress.update_progress("sfm", 30, "Реконструкція камер і структури сцени")
         
         mapper_cmd = (
             f"xvfb-run.sh colmap mapper "
@@ -182,10 +342,16 @@ class ColmapPipeline(BasePipeline):
             f"{robust_params}"
         )
         
-        run_command(mapper_cmd, env=env, logger=self.logger)
-        self.logger.info("Sparse reconstruction завершено")
+        try:
+            custom_run_command(mapper_cmd, "mapping", env=env)
+            self.logger.info("Sparse reconstruction завершено")
+        except Exception as e:
+            self.logger.error(f"Помилка при sparse reconstruction: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            raise
         
-        # Перевіряємо наявність результатів
+        # 4. Перевірка наявності результатів
+        self.logger.info("Перевірка результатів реконструкції")
         model_dir = os.path.join(sparse_model_path, '0')
         if not os.path.exists(model_dir):
             subdirs = [d for d in os.listdir(sparse_model_path) 
@@ -195,6 +361,15 @@ class ColmapPipeline(BasePipeline):
                 self.logger.info(f"Знайдено альтернативну директорію моделі: {model_dir}")
             else:
                 self.logger.error(f"Не знайдено директорії з моделлю в {sparse_model_path}")
-                raise FileNotFoundError(f"No model directory found in {sparse_model_path}")
+                files = os.listdir(sparse_model_path)
+                self.logger.info(f"Файли в директорії: {files}")
+                raise FileNotFoundError(f"Директорія з моделлю не знайдена в {sparse_model_path}")
+        
+        # Виводимо підсумкову статистику
+        self.logger.info(f"Structure from Motion завершено успішно:")
+        self.logger.info(f"  Загальна кількість ключових точок: {progress_counter['feature_extraction']['features']}")
+        self.logger.info(f"  Загальна кількість зіставлень: {progress_counter['feature_matching']['matches']}")
+        self.logger.info(f"  Реконструйовано зображень: {progress_counter['mapping']['current']}/{progress_counter['mapping']['total']}")
+        self.logger.info(f"  Створено 3D точок: {progress_counter['mapping']['points']}")
         
         return sparse_model_path
