@@ -225,15 +225,6 @@ docker-compose down
 
 ## Контакти
 
-Електронна пошта: example@example.com
-GitHub: https://github.com/username
-https://www.open3d.org/
-https://medium.com/data-science/3d-data-processing-with-open3d-c3062aadc72e
-https://docs.luxonis.com/software/depthai/examples/pointcloud_visualization/
-https://demuc.de/colmap/datasets/
-
-ПДякую за запитання про COLMAP. Давайте розглянемо, що таке COLMAP і як він відрізняється від Open3D та OpenMVS.
-
 ## COLMAP
 
 COLMAP - це потужне програмне забезпечення з відкритим кодом для реконструкції 3D-об'єктів з набору звичайних фотографій. Він спеціалізується на процесі Structure-from-Motion (SfM) та Multi-View Stereo (MVS).
@@ -302,17 +293,3 @@ COLMAP - це потужне програмне забезпечення з ві
 └── app.py                     # Основний файл Flask
 
 docker exec -it reconstruction-api cat /data/results/931851b1-29e5-4204-8d6e-b8ff64c8f4d0/metadata.json
-
-З логів бачу, що процес реконструкції успішно прогресує:
-
-1. Спочатку завершився етап feature extraction (виявлення ключових точок)
-2. Перший етап feature matching (зіставлення ключових точок між зображеннями)
-3. Прогрес оновлено до 20%: `Прогрес оновлено: sfm - 20% - Зіставлення ключових точок`
-етапи після feature matching будуть:
-1. Mapper (sparse reconstruction) - ~50% прогресу
-2. Генерація щільної хмари точок - ~70% прогресу 
-3. Створення меша - ~80% прогресу
-4. Текстурування - ~90% прогресу
-5. Експорт моделі - ~100% прогресу
-
-Переконайтеся, що на фронтенді регулярно запитується статус через API, щоб відображати актуальний прогрес. Якщо ви оновили код ResultsPage.js, як ми обговорювали раніше, прогрес має оновлюватися автоматично кожні 3 секунди.
